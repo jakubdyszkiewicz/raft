@@ -8,13 +8,19 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
+
+var httpClient = &http.Client{
+	Timeout: time.Millisecond * 500,
+}
 
 func handleState(writer http.ResponseWriter, request *http.Request) {
 	res := raft.CurrentState()
 	b, _ := json.Marshal(res)
 	writer.Header().Add("Access-Control-Allow-Origin", "*")
 	writer.Write(b)
+	writer.Header().Add("content-type", "application/json")
 }
 
 type AppendEntriesRequest struct {
@@ -36,6 +42,7 @@ func handleAppendEntries(writer http.ResponseWriter, request *http.Request) {
 	appendEntriesResponse := AppendEntriesResponse{Term:raft.CurrentState().CurrentTerm, Success:success}
 	b, _ := json.Marshal(appendEntriesResponse)
 	writer.Write(b)
+	writer.Header().Add("content-type", "application/json")
 }
 
 type RequestVoteRequest struct {
@@ -58,12 +65,13 @@ func handleRequestVote(writer http.ResponseWriter, request *http.Request) {
 	voteResponse := RequestVoteResponse{VoteGranted:voteGranted, Term:raft.CurrentState().CurrentTerm}
 	b, _ := json.Marshal(voteResponse)
 	writer.Write(b)
+	writer.Header().Add("content-type", "application/json")
 }
 
 func sendAppendEntries(peer string, term int) (int, bool, error) {
 	req := AppendEntriesRequest{Term:term}
 	reqJson, _ := json.Marshal(req)
-	res, err := http.Post("http://" + peer + "/raft/append-entries", "application/json", bytes.NewBuffer(reqJson))
+	res, err := httpClient.Post("http://" + peer + "/raft/append-entries", "application/json", bytes.NewBuffer(reqJson))
 	if err != nil {
 		return -1, false, err
 	}
@@ -86,7 +94,7 @@ func sendAppendEntries(peer string, term int) (int, bool, error) {
 func sendRequestVote(peer string, term int, candidateId string) (int, bool, error) {
 	req := RequestVoteRequest{Term:term, CandidateId:candidateId}
 	reqJson, _ := json.Marshal(req)
-	res, err := http.Post("http://" + peer + "/raft/request-vote", "application/json", bytes.NewBuffer(reqJson))
+	res, err := httpClient.Post("http://" + peer + "/raft/request-vote", "application/json", bytes.NewBuffer(reqJson))
 	if err != nil {
 		return -1, false, err
 	}

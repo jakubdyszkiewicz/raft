@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -29,7 +30,7 @@ func NewRaft(
 	appendEntriesFunc func(peer string, term int) (int, bool, error),
 	nodeId string,
 	peers []string,
-) Raft {
+) *Raft {
 	r := Raft{
 		state: State{
 			NodeId: nodeId,
@@ -41,10 +42,11 @@ func NewRaft(
 		restartElectionTickerChannel: make(chan int, 100),
 	}
 	r.start()
-	return r
+	return &r
 }
 
 func (r *Raft) State() State {
+	fmt.Printf("STATE %v", r.state)
 	return r.state
 }
 
@@ -145,6 +147,7 @@ func (r *Raft) startElection() {
 func (r *Raft) convertToLeader() {
 	log.Print("Converting to leader")
 	r.state.Role = "leader"
+	fmt.Printf("State from converting to leader is %v", r.state)
 	r.sendHeartbeats()
 	r.startLeaderHeartbeatsTicker()
 }

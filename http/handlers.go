@@ -8,21 +8,19 @@ import (
 )
 
 type Handlers struct {
-	raft raft.Raft
+	raft *raft.Raft
 }
 
-func NewHandlers(raft raft.Raft) Handlers {
-	return Handlers{
+func NewHandlers(raft *raft.Raft) *Handlers {
+	return &Handlers{
 		raft: raft,
 	}
 }
 
 func (h *Handlers) HandleState(writer http.ResponseWriter, request *http.Request) {
-	res := h.raft.State()
-	b, _ := json.Marshal(res)
 	writer.Header().Add("Access-Control-Allow-Origin", "*")
-	writer.Write(b)
-	writer.Header().Add("content-type", "application/json")
+	res := h.raft.State()
+	writeJson(res, writer)
 }
 
 type AppendEntriesRequest struct {
@@ -35,16 +33,13 @@ type AppendEntriesResponse struct {
 }
 
 func (h *Handlers) HandleAppendEntries(writer http.ResponseWriter, request *http.Request) {
-	body, _ := ioutil.ReadAll(request.Body)
 	appendEntriesRequest := AppendEntriesRequest{}
-	json.Unmarshal(body, &appendEntriesRequest)
+	readJson(appendEntriesRequest, request)
 
 	success := h.raft.AppendEntries(appendEntriesRequest.Term)
 
 	appendEntriesResponse := AppendEntriesResponse{Term:h.raft.State().CurrentTerm, Success:success}
-	b, _ := json.Marshal(appendEntriesResponse)
-	writer.Write(b)
-	writer.Header().Add("content-type", "application/json")
+	writeJson(appendEntriesResponse, writer)
 }
 
 type RequestVoteRequest struct {
@@ -58,14 +53,22 @@ type RequestVoteResponse struct {
 }
 
 func (h *Handlers) HandleRequestVote(writer http.ResponseWriter, request *http.Request) {
-	body, _ := ioutil.ReadAll(request.Body)
 	voteRequest := RequestVoteRequest{}
-	json.Unmarshal(body, &voteRequest)
+	readJson(voteRequest, request)
 
 	voteGranted := h.raft.RequestVote(voteRequest.Term, voteRequest.CandidateId)
 
 	voteResponse := RequestVoteResponse{VoteGranted:voteGranted, Term:h.raft.State().CurrentTerm}
-	b, _ := json.Marshal(voteResponse)
+	writeJson(voteResponse, writer)
+}
+
+func readJson(obj interface{}, request *http.Request) {
+	body, _ := ioutil.ReadAll(request.Body)
+	json.Unmarshal(body, obj)
+}
+
+func writeJson(obj interface{}, writer http.ResponseWriter) {
+	b, _ := json.Marshal(obj)
 	writer.Write(b)
 	writer.Header().Add("content-type", "application/json")
 }

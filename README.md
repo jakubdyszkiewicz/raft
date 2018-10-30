@@ -26,3 +26,6 @@ go cmd/main.go localhost:9001 localhost:9002 localhost:9003
 go cmd/main.go localhost:9002 localhost:9001 localhost:9003
 go cmd/main.go localhost:9003 localhost:9001 localhost:9002
 ``` 
+
+## Known issues
+There are race conditions. All requests and events from timer should be processed on one queue to avoid concurrent modifications.

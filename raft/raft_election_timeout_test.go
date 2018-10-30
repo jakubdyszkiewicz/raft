@@ -4,13 +4,7 @@ import "testing"
 
 func Test_ShouldStartElectionOnTimeoutAndLooseIt(t *testing.T) {
 	// given
-	var r = Raft{
-		state:State{NodeId: "mynode", CurrentTerm: 1, Role: "follower", Peers:[]string { "anotherpeer" }},
-		restartElectionTickerChannel: make(chan int, 100),
-		requestVoteFunc: func(peer string, term int, candidateId string) (int, bool, error) {
-			return -1, false, nil
-		},
-	}
+	var r = NewTestRaft(State{NodeId: "mynode", CurrentTerm: 1, Role: "follower", Peers:[]string { "anotherpeer" }})
 
 	// when
 	r.handleElectionTimeout()
@@ -27,5 +21,38 @@ func Test_ShouldStartElectionOnTimeoutAndLooseIt(t *testing.T) {
 	}
 	if r.State().VotesGranted != 1 {
 		t.Errorf("Should have only 1 vote (voted for itself), had %v votes", r.State().VotedFor)
+	}
+}
+
+func Test_ShouldWinElectionWithMajorityOfVotes(t *testing.T) {
+	// given
+	var r = NewTestRaft(State{NodeId: "mynode", CurrentTerm: 1, Role: "follower", Peers:[]string { "anotherpeer" }})
+	r.AnswerForRequestVote("anotherpeer", 1, true)
+	r.AnswerForAppendEntry("anotherpeer", 1, true)
+
+	// when
+	r.handleElectionTimeout()
+
+	// then
+	if r.State().Role != "leader" {
+		t.Errorf("Role should be leader, was %v", r.State().Role)
+	}
+	if r.State().VotesGranted != 2 {
+		t.Errorf("Should have 2 vote, had %v votes", r.State().VotedFor)
+	}
+}
+
+func Test_ShouldConvertToFollowerWhenReceivedVoteResponseWithNewerTerm(t *testing.T) {
+	// given
+	var r = NewTestRaft(State{NodeId: "mynode", CurrentTerm: 0, Role: "follower", Peers:[]string { "anotherpeer" }})
+	r.AnswerForRequestVote("anotherpeer", 2, true)
+	r.AnswerForAppendEntry("anotherpeer", 2, true)
+
+	// when
+	r.handleElectionTimeout()
+
+	// then
+	if r.State().Role != "follower" {
+		t.Errorf("Role should be follower, was %v", r.State().Role)
 	}
 }

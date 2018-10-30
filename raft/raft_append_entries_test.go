@@ -2,14 +2,14 @@ package raft
 
 import "testing"
 
-func TestShouldSwitchToFollowerIfStaleTermOnAppendEntries(t *testing.T) {
-	var r = Raft{
-		state:State{CurrentTerm: 1, Role: "leader"},
-		restartElectionTickerChannel: make(chan int, 100),
-	}
+func Test_ShouldSwitchToFollowerIfStaleTermOnAppendEntries(t *testing.T) {
+	// given
+	var r = NewTestRaft(State{CurrentTerm: 1, Role: "leader"})
 
+	// when
 	r.AppendEntries(2)
 
+	// then
 	if r.State().Role != "follower" {
 		t.Errorf("Role incorrect: should be follower was %v", r.State().Role)
 	}

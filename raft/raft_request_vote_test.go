@@ -2,12 +2,9 @@ package raft
 
 import "testing"
 
-func Test_RequestVote_ShouldGrantVote(t *testing.T) {
+func Test_ShouldGrantVote(t *testing.T) {
 	// given
-	var r = Raft{
-		state:State{CurrentTerm: 1, Role: "follower"},
-		restartElectionTickerChannel: make(chan int, 100),
-	}
+	var r = NewTestRaft(State{CurrentTerm: 1, Role: "follower"})
 
 	// when voted
 	vote := r.RequestVote(1, "candidate")
@@ -21,12 +18,9 @@ func Test_RequestVote_ShouldGrantVote(t *testing.T) {
 	}
 }
 
-func Test_RequestVote_RejectVoteOnStaleTerm(t *testing.T) {
+func Test_ShouldRejectVoteOnStaleTerm(t *testing.T) {
 	// given
-	var r = Raft{
-		state:State{CurrentTerm: 2, Role: "follower"},
-		restartElectionTickerChannel: make(chan int, 100),
-	}
+	var r = NewTestRaft(State{CurrentTerm: 2, Role: "follower"})
 
 	// when voted with stale term
 	vote := r.RequestVote(1, "candidate")
@@ -37,12 +31,9 @@ func Test_RequestVote_RejectVoteOnStaleTerm(t *testing.T) {
 	}
 }
 
-func Test_RequestVote_SwitchToFollowerOnStaleTerm(t *testing.T) {
+func Test_ShouldSwitchToFollowerOnStaleTerm(t *testing.T) {
 	// given
-	var r = Raft{
-		state:State{CurrentTerm: 1, Role: "leader"},
-		restartElectionTickerChannel: make(chan int, 100),
-	}
+	var r = NewTestRaft(State{CurrentTerm: 1, Role: "leader"})
 
 	// when
 	r.RequestVote(2, "candidate")
@@ -57,12 +48,9 @@ func Test_RequestVote_SwitchToFollowerOnStaleTerm(t *testing.T) {
 	}
 }
 
-func Test_RequestVote_RejectVoteWhenAlreadyVoted(t *testing.T) {
+func Test_ShouldRejectVoteWhenAlreadyVoted(t *testing.T) {
 	// given
-	var r = Raft{
-		state:State{CurrentTerm: 1, Role: "follower", VotedFor:"someNode"},
-		restartElectionTickerChannel: make(chan int, 100),
-	}
+	var r = NewTestRaft(State{CurrentTerm: 1, Role: "follower", VotedFor:"someNode"})
 
 	// when
 	vote := r.RequestVote(1, "anotherCandidate")

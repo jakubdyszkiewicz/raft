@@ -1,7 +1,6 @@
 package raft
 
 import (
-	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -46,7 +45,6 @@ func NewRaft(
 }
 
 func (r *Raft) State() State {
-	fmt.Printf("STATE %v", r.state)
 	return r.state
 }
 
@@ -147,7 +145,6 @@ func (r *Raft) startElection() {
 func (r *Raft) convertToLeader() {
 	log.Print("Converting to leader")
 	r.state.Role = "leader"
-	fmt.Printf("State from converting to leader is %v", r.state)
 	r.sendHeartbeats()
 	r.startLeaderHeartbeatsTicker()
 }
@@ -168,15 +165,16 @@ func (r *Raft) RequestVote(term int, candidateId string) bool {
 	log.Printf("Requesting vote for candidate %v and term %v", candidateId, term)
 	r.updateTermIfNeeded(term)
 	if term < r.state.CurrentTerm {
-		log.Printf("Received lower term %v than current %v", term, r.state.CurrentTerm)
+		log.Printf("Vote rejected. Received stale term %v than current %v.", term, r.state.CurrentTerm)
 		return false
 	}
 	if r.state.VotedFor != "" {
-		log.Printf("Already voted for %v", r.state.VotedFor)
+		log.Printf("Vote rejected. Already voted for %v", r.state.VotedFor)
 		return false
 	}
 	r.state.VotedFor = candidateId
 	log.Printf("Voted granted")
+	r.resetElectionTimer()
 	return true
 }
 

@@ -1,7 +1,7 @@
 package http
 
 import (
-	".."
+	"../raft"
 	"encoding/json"
 	"io/ioutil"
 	"log"
@@ -49,7 +49,7 @@ type AppendEntriesResponse struct {
 
 func (s *Server) HandleAppendEntries(writer http.ResponseWriter, request *http.Request) {
 	appendEntriesRequest := AppendEntriesRequest{}
-	readJson(appendEntriesRequest, request)
+	readJson(&appendEntriesRequest, request)
 
 	success := s.raft.AppendEntries(appendEntriesRequest.Term)
 
@@ -69,7 +69,7 @@ type RequestVoteResponse struct {
 
 func (s *Server) HandleRequestVote(writer http.ResponseWriter, request *http.Request) {
 	voteRequest := RequestVoteRequest{}
-	readJson(voteRequest, request)
+	readJson(&voteRequest, request)
 
 	voteGranted := s.raft.RequestVote(voteRequest.Term, voteRequest.CandidateId)
 

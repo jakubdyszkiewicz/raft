@@ -11,12 +11,13 @@ import (
 	"time"
 )
 
+var r raft.Raft
 var httpClient = &http.Client{
 	Timeout: time.Millisecond * 500,
 }
 
 func handleState(writer http.ResponseWriter, request *http.Request) {
-	res := raft.CurrentState()
+	res := r.State()
 	b, _ := json.Marshal(res)
 	writer.Header().Add("Access-Control-Allow-Origin", "*")
 	writer.Write(b)
@@ -37,9 +38,9 @@ func handleAppendEntries(writer http.ResponseWriter, request *http.Request) {
 	appendEntriesRequest := AppendEntriesRequest{}
 	json.Unmarshal(body, &appendEntriesRequest)
 
-	success := raft.AppendEntries(appendEntriesRequest.Term)
+	success := r.AppendEntries(appendEntriesRequest.Term)
 
-	appendEntriesResponse := AppendEntriesResponse{Term:raft.CurrentState().CurrentTerm, Success:success}
+	appendEntriesResponse := AppendEntriesResponse{Term:r.State().CurrentTerm, Success:success}
 	b, _ := json.Marshal(appendEntriesResponse)
 	writer.Write(b)
 	writer.Header().Add("content-type", "application/json")
@@ -60,9 +61,9 @@ func handleRequestVote(writer http.ResponseWriter, request *http.Request) {
 	voteRequest := RequestVoteRequest{}
 	json.Unmarshal(body, &voteRequest)
 
-	voteGranted := raft.RequestVote(voteRequest.Term, voteRequest.CandidateId)
+	voteGranted := r.RequestVote(voteRequest.Term, voteRequest.CandidateId)
 
-	voteResponse := RequestVoteResponse{VoteGranted:voteGranted, Term:raft.CurrentState().CurrentTerm}
+	voteResponse := RequestVoteResponse{VoteGranted:voteGranted, Term:r.State().CurrentTerm}
 	b, _ := json.Marshal(voteResponse)
 	writer.Write(b)
 	writer.Header().Add("content-type", "application/json")
@@ -121,12 +122,8 @@ func main() {
 		panic("Pass NodeID as a first arg and peers as a next")
 	}
 
-	raft.UpdateNodeId(args[0])
-	raft.UpdatePeers(args[1:])
+	r = raft.NewRaft(sendRequestVote, sendAppendEntries, args[0], args[1:])
 
-	raft.Start()
-	raft.AppendEntriesFunc = sendAppendEntries
-	raft.RequestVoteFunc = sendRequestVote
 	http.HandleFunc("/raft/state", handleState)
 	http.HandleFunc("/raft/request-vote", handleRequestVote)
 	http.HandleFunc("/raft/append-entries", handleAppendEntries)

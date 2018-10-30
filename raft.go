@@ -6,116 +6,125 @@ import (
 	"time"
 )
 
+type Raft struct {
+	state State
+
+	requestVoteFunc              func(peer string, term int, candidateId string) (int, bool, error)
+	appendEntriesFunc            func(peer string, term int) (int, bool, error)
+	restartElectionTickerChannel chan int
+}
+
 type State struct {
-	CurrentTerm int `json:"currentTerm"`
-	LastHeartbeat int64 `json:"lastHeartbeat"`
-	Peers []string `json:"peers"`
-	Role string `json:"role"`
-	NodeId string `json:"nodeId"`
-	VotedFor string `json:"votedFor"`
-	VotesGranted int `json:"votesGranted"`
+	CurrentTerm   int      `json:"currentTerm"`
+	LastHeartbeat int64    `json:"lastHeartbeat"`
+	Peers         []string `json:"peers"`
+	Role          string   `json:"role"`
+	NodeId        string   `json:"nodeId"`
+	VotedFor      string   `json:"votedFor"`
+	VotesGranted  int      `json:"votesGranted"`
 }
 
-var state = State{
-	Peers: []string{},
-	Role:"follower"}
-
-var restartElectionTickerChannel = make(chan(int), 100)
-
-var leaderHeartbeatTicker = time.NewTicker(3 * time.Second)
-var restartLeaderHeartbeatsChannel = make(chan(int), 100)
-
-var RequestVoteFunc = func(peer string, term int, candidateId string) (int, bool, error) {
-	return -1, false, nil
+func NewRaft(
+	requestVoteFunc func(peer string, term int, candidateId string) (int, bool, error),
+	appendEntriesFunc func(peer string, term int) (int, bool, error),
+	nodeId string,
+	peers []string,
+) Raft {
+	r := Raft{
+		state: State{
+			NodeId: nodeId,
+			Peers:  peers,
+			Role:   "follower",
+		},
+		requestVoteFunc:              requestVoteFunc,
+		appendEntriesFunc:            appendEntriesFunc,
+		restartElectionTickerChannel: make(chan int, 100),
+	}
+	r.start()
+	return r
 }
-var AppendEntriesFunc = func(peer string, term int) (int, bool, error) {
-	return -1, false, nil
+
+func (r *Raft) State() State {
+	return r.state
 }
 
-func Start() {
-	startElectionTicker()
-	startLeaderHeartbeatsTicker()
+func (r *Raft) start() {
+	r.startElectionTicker()
+	r.startLeaderHeartbeatsTicker()
 }
 
-func startElectionTicker() {
-	var randomMillis = rand.Int() % 1000 + 4000
+func (r *Raft) startElectionTicker() {
+	var randomMillis = rand.Int()%1000 + 4000
 	electionTicker := time.NewTicker(time.Duration(randomMillis) * time.Millisecond)
 	go func() {
 		for {
 			select {
 			case <-electionTicker.C:
-				HandleElectionTimeout()
-			case <-restartElectionTickerChannel:
-				go startElectionTicker()
+				r.handleElectionTimeout()
+			case <-r.restartElectionTickerChannel:
+				go r.startElectionTicker()
 				return
 			}
 		}
 	}()
 }
 
-func startLeaderHeartbeatsTicker() {
-	leaderHeartbeatTicker = time.NewTicker(3 * time.Second)
+func (r *Raft) startLeaderHeartbeatsTicker() {
+	leaderHeartbeatTicker := time.NewTicker(3 * time.Second)
 	go func() {
 		for {
 			select {
 			case <-leaderHeartbeatTicker.C:
-				sendHeartbeats()
-			case <-restartLeaderHeartbeatsChannel:
-				go startLeaderHeartbeatsTicker()
-				return
+				r.sendHeartbeats()
 			}
 		}
 	}()
 }
 
-func HandleElectionTimeout() {
-	if isLeader() {
+func (r *Raft) handleElectionTimeout() {
+	if r.isLeader() {
 		return
 	}
 	log.Println("Handle election timeout")
-	convertToCandidate()
-	startElection()
+	r.convertToCandidate()
+	r.startElection()
 }
 
-func sendHeartbeats() {
-	for _, peer := range state.Peers {
-		if !isLeader() {
+func (r *Raft) sendHeartbeats() {
+	for _, peer := range r.state.Peers {
+		if !r.isLeader() {
 			return
 		}
 		log.Printf("Sending heartbeat to %v", peer)
-		term, _, err := AppendEntriesFunc(peer, state.CurrentTerm)
+		term, _, err := r.appendEntriesFunc(peer, r.state.CurrentTerm)
 		if err != nil {
 			log.Printf("Error on append entries to peer %v: %v", peer, err)
 		} else {
-			updateTermIfNeeded(term)
+			r.updateTermIfNeeded(term)
 		}
 	}
-	updateHeartbeat()
+	r.updateHeartbeat()
 }
 
-func updateHeartbeat() {
-	state.LastHeartbeat = time.Now().UnixNano() / int64(time.Millisecond)
+func (r *Raft) updateHeartbeat() {
+	r.state.LastHeartbeat = time.Now().UnixNano() / int64(time.Millisecond)
 }
 
-func isLeader() bool {
-	return state.Role == "leader"
-}
-
-func startElection() {
+func (r *Raft) startElection() {
 	log.Print("Starting election")
-	state.CurrentTerm++
-	state.VotedFor = state.NodeId
-	resetElectionTimer()
+	r.state.CurrentTerm++
+	r.state.VotedFor = r.state.NodeId
+	r.resetElectionTimer()
 	var votesGranted = 1 // voted for myself
-	for _, peer := range state.Peers {
+	for _, peer := range r.state.Peers {
 		log.Printf("Sending request vote to peer %v", peer)
-		term, voteGranted, err := RequestVoteFunc(peer, state.CurrentTerm, state.NodeId)
+		term, voteGranted, err := r.requestVoteFunc(peer, r.state.CurrentTerm, r.state.NodeId)
 		log.Printf("Received %v term and vote %v", term, votesGranted)
 		if err != nil {
 			log.Printf("Error on request vote to peer %v: %v", peer, err)
 		} else {
-			updateTermIfNeeded(term)
-			if !isCandidate() {
+			r.updateTermIfNeeded(term)
+			if !r.isCandidate() {
 				return
 			}
 			if voteGranted {
@@ -123,94 +132,87 @@ func startElection() {
 			}
 		}
 	}
-	state.VotesGranted = votesGranted
-	allPeers := len(state.Peers) + 1
-	if votesGranted > allPeers / 2 {
+	r.state.VotesGranted = votesGranted
+	allPeers := len(r.state.Peers) + 1
+	if votesGranted > allPeers/2 {
 		log.Printf("Granted majority of votes %v of %v", votesGranted, allPeers)
-		convertToLeader()
+		r.convertToLeader()
 	} else {
 		log.Printf("Did not granted majority of votes: %v of %v", votesGranted, allPeers)
 	}
 }
-func isCandidate() bool {
-	return state.Role == "candidate"
-}
 
-func convertToLeader() {
+func (r *Raft) convertToLeader() {
 	log.Print("Converting to leader")
-	state.Role = "leader"
-	sendHeartbeats()
-	startLeaderHeartbeatsTicker()
+	r.state.Role = "leader"
+	r.sendHeartbeats()
+	r.startLeaderHeartbeatsTicker()
 }
-
-func convertToCandidate() {
+func (r *Raft) convertToCandidate() {
 	log.Print("Converting to candidate")
-	state.Role = "candidate"
-	resetElectionTimer()
+	r.state.Role = "candidate"
+	r.resetElectionTimer()
 }
 
-func convertToFollower() {
+func (r *Raft) convertToFollower() {
 	log.Print("Converting to follower")
-	state.Role = "follower"
-	state.VotedFor = ""
-	resetElectionTimer()
+	r.state.Role = "follower"
+	r.state.VotedFor = ""
+	r.resetElectionTimer()
 }
 
-func CurrentState() State {
-	return state
-}
-
-func UpdatePeers(peers []string) {
-	state.Peers = peers
-}
-
-func UpdateNodeId(nodeId string) {
-	state.NodeId = nodeId
-}
-
-func RequestVote(term int, candidateId string) bool {
+func (r *Raft) RequestVote(term int, candidateId string) bool {
 	log.Printf("Requesting vote for candidate %v and term %v", candidateId, term)
-	updateTermIfNeeded(term)
-	if term < state.CurrentTerm {
-		log.Printf("Received lower term %v than current %v", term, state.CurrentTerm)
+	r.updateTermIfNeeded(term)
+	if term < r.state.CurrentTerm {
+		log.Printf("Received lower term %v than current %v", term, r.state.CurrentTerm)
 		return false
 	}
-	if state.VotedFor != "" {
-		log.Printf("Already voted for %v", state.VotedFor)
+	if r.state.VotedFor != "" {
+		log.Printf("Already voted for %v", r.state.VotedFor)
 		return false
 	}
-	state.VotedFor = candidateId
+	r.state.VotedFor = candidateId
 	log.Printf("Voted granted")
 	return true
 }
-func isFollower() bool {
-	return state.Role == "follower"
-}
 
-func AppendEntries(term int) bool {
+func (r *Raft) AppendEntries(term int) bool {
 	log.Printf("Appending entry for term %v", term)
-	updateTermIfNeeded(term)
-	resetElectionTimer()
-	if term < state.CurrentTerm {
-		log.Printf("Received lower term %v than current %v", term, state.CurrentTerm)
+	r.updateTermIfNeeded(term)
+	r.resetElectionTimer()
+	if term < r.state.CurrentTerm {
+		log.Printf("Received lower term %v than current %v", term, r.state.CurrentTerm)
 		return false
 	}
-	updateHeartbeat()
-	log.Printf("Entry appended. Heartbeat %v", state.LastHeartbeat)
+	r.updateHeartbeat()
+	log.Printf("Entry appended. Heartbeat %v", r.state.LastHeartbeat)
 	return true
 }
 
-func resetElectionTimer() {
+func (r *Raft) resetElectionTimer() {
 	log.Println("Reseting election timer")
-	restartElectionTickerChannel <- 1
+	r.restartElectionTickerChannel <- 1
 }
 
-func updateTermIfNeeded(term int) {
-	if state.CurrentTerm < term {
-		log.Printf("Stale term %v, updating to %v", state.CurrentTerm, term)
-		state.CurrentTerm = term
-		state.VotesGranted = 0
-		state.VotedFor = ""
-		convertToFollower()
+func (r *Raft) updateTermIfNeeded(term int) {
+	if r.state.CurrentTerm < term {
+		log.Printf("Stale term %v, updating to %v", r.state.CurrentTerm, term)
+		r.state.CurrentTerm = term
+		r.state.VotesGranted = 0
+		r.state.VotedFor = ""
+		r.convertToFollower()
 	}
+}
+
+func (r *Raft) isLeader() bool {
+	return r.state.Role == "leader"
+}
+
+func (r *Raft) isCandidate() bool {
+	return r.state.Role == "candidate"
+}
+
+func (r *Raft) isFollower() bool {
+	return r.state.Role == "follower"
 }

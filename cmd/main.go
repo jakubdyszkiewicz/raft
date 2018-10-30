@@ -2,119 +2,11 @@ package main
 
 import (
 	".."
-	"bytes"
-	"encoding/json"
-	"io/ioutil"
+	raftHttp "../http"
 	"log"
 	"net/http"
 	"os"
-	"time"
 )
-
-var r raft.Raft
-var httpClient = &http.Client{
-	Timeout: time.Millisecond * 500,
-}
-
-func handleState(writer http.ResponseWriter, request *http.Request) {
-	res := r.State()
-	b, _ := json.Marshal(res)
-	writer.Header().Add("Access-Control-Allow-Origin", "*")
-	writer.Write(b)
-	writer.Header().Add("content-type", "application/json")
-}
-
-type AppendEntriesRequest struct {
-	Term int `json:"term"`
-}
-
-type AppendEntriesResponse struct {
-	Term int `json:"term"`
-	Success bool `json:"success"`
-}
-
-func handleAppendEntries(writer http.ResponseWriter, request *http.Request) {
-	body, _ := ioutil.ReadAll(request.Body)
-	appendEntriesRequest := AppendEntriesRequest{}
-	json.Unmarshal(body, &appendEntriesRequest)
-
-	success := r.AppendEntries(appendEntriesRequest.Term)
-
-	appendEntriesResponse := AppendEntriesResponse{Term:r.State().CurrentTerm, Success:success}
-	b, _ := json.Marshal(appendEntriesResponse)
-	writer.Write(b)
-	writer.Header().Add("content-type", "application/json")
-}
-
-type RequestVoteRequest struct {
-	Term int `json:"term"`
-	CandidateId string `json:"candidateId"`
-}
-
-type RequestVoteResponse struct {
-	Term int `json:"term"`
-	VoteGranted bool `json:"voteGranted"`
-}
-
-func handleRequestVote(writer http.ResponseWriter, request *http.Request) {
-	body, _ := ioutil.ReadAll(request.Body)
-	voteRequest := RequestVoteRequest{}
-	json.Unmarshal(body, &voteRequest)
-
-	voteGranted := r.RequestVote(voteRequest.Term, voteRequest.CandidateId)
-
-	voteResponse := RequestVoteResponse{VoteGranted:voteGranted, Term:r.State().CurrentTerm}
-	b, _ := json.Marshal(voteResponse)
-	writer.Write(b)
-	writer.Header().Add("content-type", "application/json")
-}
-
-func sendAppendEntries(peer string, term int) (int, bool, error) {
-	req := AppendEntriesRequest{Term:term}
-	reqJson, _ := json.Marshal(req)
-	res, err := httpClient.Post("http://" + peer + "/raft/append-entries", "application/json", bytes.NewBuffer(reqJson))
-	if err != nil {
-		return -1, false, err
-	}
-
-	if res.StatusCode != 200 {
-		log.Printf("Received status code %v", res.StatusCode)
-		return -1, false, nil
-	}
-
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return -1, false, err
-	}
-	var appendEntriesResponse = AppendEntriesResponse{}
-	json.Unmarshal(body, &appendEntriesResponse)
-
-	return appendEntriesResponse.Term, appendEntriesResponse.Success, nil
-}
-
-func sendRequestVote(peer string, term int, candidateId string) (int, bool, error) {
-	req := RequestVoteRequest{Term:term, CandidateId:candidateId}
-	reqJson, _ := json.Marshal(req)
-	res, err := httpClient.Post("http://" + peer + "/raft/request-vote", "application/json", bytes.NewBuffer(reqJson))
-	if err != nil {
-		return -1, false, err
-	}
-
-	if res.StatusCode != 200 {
-		log.Printf("Received status code %v", res.StatusCode)
-		return -1, false, nil
-	}
-
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return -1, false, err
-	}
-
-	var requestVoteResponse = RequestVoteResponse{}
-	json.Unmarshal(body, &requestVoteResponse)
-
-	return requestVoteResponse.Term, requestVoteResponse.VoteGranted, nil
-}
 
 func main() {
 	args := os.Args[1:]
@@ -122,11 +14,13 @@ func main() {
 		panic("Pass NodeID as a first arg and peers as a next")
 	}
 
-	r = raft.NewRaft(sendRequestVote, sendAppendEntries, args[0], args[1:])
+	client := raftHttp.NewClient()
+	r := raft.NewRaft(client.SendRequestVote, client.SendAppendEntries, args[0], args[1:])
+	handlers := raftHttp.NewHandlers(r)
 
-	http.HandleFunc("/raft/state", handleState)
-	http.HandleFunc("/raft/request-vote", handleRequestVote)
-	http.HandleFunc("/raft/append-entries", handleAppendEntries)
+	http.HandleFunc("/raft/state", handlers.HandleState)
+	http.HandleFunc("/raft/request-vote", handlers.HandleRequestVote)
+	http.HandleFunc("/raft/append-entries", handlers.HandleAppendEntries)
 	log.Fatal(http.ListenAndServe(args[0], logRequest(http.DefaultServeMux)))
 }
 
